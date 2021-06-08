@@ -1,0 +1,60 @@
+version: '3.7'   
+
+services:
+  db:
+    image: postgres
+    container_name: observability-postgres
+    tty: true
+    environment:
+      - POSTGRES_DB=commerce_admin
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=root
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks: 
+      - observability
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: observability-pgadmin
+    tty: true
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@fullcycle.com.br
+      - PGADMIN_DEFAULT_PASSWORD=123456
+    ports:
+      - "9001:80"
+    networks: 
+      - observability
+  
+  app:
+    build: .
+    container_name: observability-app
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    networks: 
+      - observability
+
+  nginx:
+    build: ../nginx
+    container_name: observability-nginx
+    volumes:
+      - ./log/nginx:/var/log/nginx
+    ports:
+      - "8080:80"
+    networks: 
+      - observability
+      
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  postgresql_data:

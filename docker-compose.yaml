@@ -1,0 +1,115 @@
+version: "3.8"
+
+services:  
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.13.1
+    container_name: observability-elasticsearch
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=es-docker-cluster
+      - cluster.initial_master_nodes=elasticsearch
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms750m -Xmx750m"
+      - http.cors.enabled=true
+      - http.cors.allow-origin="*"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks: 
+      - observability
+   
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.13.1
+    container_name: observability-kibana
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+    networks: 
+      - observability
+    depends_on:
+      - elasticsearch
+
+  metricbeat:
+    image: docker.elastic.co/beats/metricbeat:7.13.1
+    container_name: observability-metricbeat
+    command: --strict.perms=false -e  # -e flag to log to stderr and disable syslog/file output
+    user: root
+    volumes:      
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./beats/metric/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml
+    restart: on-failure
+    networks: 
+      - observability
+    depends_on:
+      - kibana
+
+  heartbeat:
+    image: docker.elastic.co/beats/heartbeat:7.13.1
+    container_name: observability-heartbeat
+    command: --strict.perms=false -e  # -e flag to log to stderr and disable syslog/file output
+    volumes:      
+      - ./beats/heart/heartbeat.yml:/usr/share/heartbeat/heartbeat.yml
+    environment: 
+      - setup.kibana.host=kibana:5601
+    networks: 
+      - observability
+    depends_on:
+      - kibana
+    
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.13.1
+    container_name: observability-filebeat
+    command: 
+      - filebeat 
+      - -e
+      - --strict.perms=false
+      - -E
+      - output.elasticsearch.hosts=["http://elasticsearch:9200"]
+      - -E
+      - output.elasticsearch.username=elastic
+      - -E
+      - output.elasticsearch.password=changeme
+      - -E
+      - output.elasticsearch.enabled=true
+      - -E
+      - output.console.enabled=false
+      # - -E
+      # - setup.kibana.host=kibana:5601
+      # - setup
+      # - --dashboards
+    volumes:      
+      - ./beats/file/filebeat.yml:/usr/share/filebeat/filebeat.yml
+      - ./beats/file/modules.d/nginx.yml:/usr/share/filebeat/modules.d/nginx.yml
+      - ./app/log/nginx:/var/log/nginx
+    environment: 
+      - setup.kibana.host=kibana:5601
+    networks: 
+      - observability
+    depends_on:
+      - kibana
+
+  apm:
+    image: docker.elastic.co/apm/apm-server-oss:7.13.1
+    container_name: observability-apm
+    command: --strict.perms=false -e  # -e flag to log to stderr and disable syslog/file output
+    volumes:      
+      - ./apm/apm-server.yml:/usr/share/apm-server/apm-server.yml
+    ports:
+      - "8200:8200"
+    restart: on-failure
+    networks: 
+      - observability
+    depends_on:
+      - kibana
+
+networks:
+  observability:
+    driver: bridge    
